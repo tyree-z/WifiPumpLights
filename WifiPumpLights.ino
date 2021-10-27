@@ -1,11 +1,13 @@
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
-#include <ESP8266mDNS.h>
+#include <ESP8266HTTPClient.h>
+#include <ArduinoJson.h>
 
 #ifndef STASSID
 #define STASSID "WuTangClan"
 #define STAPSK  "Ziggy1111"
+#define SERVERIP "10.0.0.197:3000"
 #endif
 
 const char* ssid = STASSID;
@@ -13,23 +15,73 @@ const char* password = STAPSK;
 
 ESP8266WebServer server(80);
 
-const int pumpRead = 16;
-const int pumpWrite = 5;
+const int pumpRead = 0;
+const int pumpWrite = 2;
 
 void handleRoot() {
   server.send(200, "text/plain", "hello from my waterpump");
 }
 
-void handleActivate() {
-  digitalWrite(pumpWrite, LOW);
-  server.send(200, "text/plain", "Activated");
+void sendApiActivate() {
+  WiFiClient client;
+  HTTPClient http;
+    
+  StaticJsonDocument<200> doc;
+  doc["isOn"] = true;
+  String json;
+  serializeJson(doc, json);
+  
+  Serial.print("[HTTP] begin...\n");
+  http.begin(client, "http://" SERVERIP "/v1/iot/rx");
+  http.addHeader("Content-Type", "application/json");
+  Serial.print("[HTTP] POST...\n");
+  int httpCode = http.POST(json);
+  if (httpCode > 0) {
+      Serial.printf("[HTTP] POST... code: %d\n", httpCode);
 
+      if (httpCode == HTTP_CODE_OK) {
+        const String& payload = http.getString();
+        Serial.println(payload);
+      }
+    } else {
+      Serial.printf("[HTTP] POST... failed, error: %s\n", http.errorToString(httpCode).c_str());
+    }
+    http.end();
 }
 
+void sendApiDeactivate() {
+  WiFiClient client;
+  HTTPClient http;
+
+  StaticJsonDocument<200> doc;
+  doc["isOn"] = false;
+  String json;
+  serializeJson(doc, json);
+  
+  Serial.print("[HTTP] begin...\n");
+  http.begin(client, "http://" SERVERIP "/v1/iot/rx");
+  http.addHeader("Content-Type", "application/json");
+  Serial.print("[HTTP] POST...\n");
+  int httpCode = http.POST(json);
+  if (httpCode > 0) {
+      Serial.printf("[HTTP] POST... code: %d\n", httpCode);
+
+      if (httpCode == HTTP_CODE_OK) {
+        const String& payload = http.getString();
+        Serial.println(payload);
+      }
+    } else {
+      Serial.printf("[HTTP] POST... failed, error: %s\n", http.errorToString(httpCode).c_str());
+    }
+    http.end();
+}
+
+void handleActivate() {
+  digitalWrite(pumpWrite, LOW);
+  sendApiActivate();
+  }
 void handleDeactivate() {
   digitalWrite(pumpWrite, HIGH);
-  server.send(200, "text/plain", "Deactivated");
-
 }
 
 void handleNotFound() {
@@ -55,7 +107,6 @@ void setup(void) {
   WiFi.begin(ssid, password);
   Serial.println("");
 
-  // Wait for connection
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
@@ -75,7 +126,15 @@ void setup(void) {
 }
 
 void loop(void) {
+  if (digitalRead(pumpRead) == 0){
+    handleActivate();
+    delay(30001);
+    handleDeactivate();
+    sendApiDeactivate();
+    }
+    else {
+      handleDeactivate();
+      }
+      
   server.handleClient();
-  MDNS.update();
-  Serial.println(digitalRead(pumpRead));
 }
